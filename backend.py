@@ -16,7 +16,7 @@ app = FastAPI(title="Legal AI Backend")
 # --- Allow CORS for V0.dev frontend ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ replace with frontend URL in production
+    allow_origins=["*"],  # ⚠️ replace with your deployed frontend URL
     allow_methods=["*"],
     allow_headers=["*"]
 )
@@ -50,6 +50,7 @@ async def generate_summary(file: UploadFile):
 @app.post("/clauses")
 async def key_clauses(file: UploadFile):
     text = extract_text(file)
+
     prompt = f"""
     From this legal document, extract up to 10 key clauses related to:
     - liability
@@ -60,30 +61,39 @@ async def key_clauses(file: UploadFile):
     - force majeure
 
     For each clause:
-    1. Provide the clause text (short).
-    2. Explain it in simple English.
-    3. Rate the risk as Low, Medium, or High.
+    - "clause": original clause text (short)
+    - "explanation": simple plain-English explanation
+    - "risk": Low / Medium / High
 
-    Return output as a JSON array:
+    Return ONLY a valid JSON array, no extra text.
+    Example:
     [
       {{
-        "clause": "original clause text",
-        "explanation": "plain English explanation",
-        "risk": "Low/Medium/High"
+        "clause": "Payment must be made within 30 days.",
+        "explanation": "Tenant must pay within 30 days of invoice.",
+        "risk": "Medium"
       }}
     ]
 
-    Document text:
+    Document:
     {text[:3000]}
     """
 
     raw_output = call_ai(prompt)
 
     # --- Ensure JSON response ---
+    clauses = []
     try:
         clauses = json.loads(raw_output)
+        if not isinstance(clauses, list):
+            raise ValueError("Not a JSON array")
     except Exception:
-        clauses = [{"clause": "Parsing error", "explanation": raw_output, "risk": "Unknown"}]
+        # fallback: wrap output in error structure
+        clauses = [{
+            "clause": "Parsing error",
+            "explanation": raw_output.strip(),
+            "risk": "Unknown"
+        }]
 
     return {"clauses": clauses}
 
@@ -93,7 +103,7 @@ async def question_answer(file: UploadFile, question: str = Form(...)):
     text = extract_text(file)
     prompt = f"""
     Use the following legal document to answer the question clearly and concisely.
-    If the answer is not in the document, say 'Not found in document.'
+    If the answer is not in the document, reply: "Not found in document."
 
     Document:
     {text[:3000]}
